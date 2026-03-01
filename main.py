@@ -1,5 +1,6 @@
 import pygame
 import heapq
+import random
 
 pygame.init()
 
@@ -13,16 +14,16 @@ GRID_AREA = 750
 CELL_SIZE = GRID_AREA // max(ROWS, COLS)
 
 WIN = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Pathfinding - A* & GBFS")
+pygame.display.set_caption("Dynamic Pathfinding - A* & GBFS")
 
 # ================= COLORS =================
 WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
 GREY = (200, 200, 200)
 GREEN = (0, 255, 0)
 BLUE = (0, 0, 255)
 BROWN = (139, 69, 19)
 PURPLE = (128, 0, 128)
+ORANGE = (255, 165, 0)
 
 # ================= NODE =================
 class Node:
@@ -63,6 +64,10 @@ class Node:
         if not self.is_start and not self.is_goal:
             self.color = PURPLE
 
+    def make_agent(self):
+        if not self.is_start and not self.is_goal:
+            self.color = ORANGE
+
     def update_neighbors(self, grid):
         self.neighbors = []
         directions = [(1,0), (-1,0), (0,1), (0,-1)]
@@ -79,61 +84,49 @@ def heuristic(a, b):
 
 # ================= PATH RECONSTRUCTION =================
 def reconstruct_path(came_from, current):
+    path = []
     while current in came_from:
         current = came_from[current]
-        current.make_path()
+        path.append(current)
+    path.reverse()
+    return path
 
 # ================= A* =================
 def astar(grid, start, goal):
-    count = 0
     open_set = []
-    heapq.heappush(open_set, (0, count, start))
-
+    heapq.heappush(open_set, (0, start))
     came_from = {}
     g_score = {node: float("inf") for row in grid for node in row}
     g_score[start] = 0
 
-    f_score = {node: float("inf") for row in grid for node in row}
-    f_score[start] = heuristic(start, goal)
-
-    open_set_hash = {start}
-
     while open_set:
-        current = heapq.heappop(open_set)[2]
-        open_set_hash.remove(current)
+        current = heapq.heappop(open_set)[1]
 
         if current == goal:
-            reconstruct_path(came_from, goal)
-            return True
+            return reconstruct_path(came_from, goal)
 
         for neighbor in current.neighbors:
             temp_g = g_score[current] + 1
             if temp_g < g_score[neighbor]:
                 came_from[neighbor] = current
                 g_score[neighbor] = temp_g
-                f_score[neighbor] = temp_g + heuristic(neighbor, goal)
-                if neighbor not in open_set_hash:
-                    count += 1
-                    heapq.heappush(open_set, (f_score[neighbor], count, neighbor))
-                    open_set_hash.add(neighbor)
+                f_score = temp_g + heuristic(neighbor, goal)
+                heapq.heappush(open_set, (f_score, neighbor))
 
-    return False
+    return None
 
 # ================= GBFS =================
 def gbfs(grid, start, goal):
-    count = 0
     open_set = []
-    heapq.heappush(open_set, (0, count, start))
-
+    heapq.heappush(open_set, (0, start))
     came_from = {}
     visited = set()
 
     while open_set:
-        current = heapq.heappop(open_set)[2]
+        current = heapq.heappop(open_set)[1]
 
         if current == goal:
-            reconstruct_path(came_from, goal)
-            return True
+            return reconstruct_path(came_from, goal)
 
         visited.add(current)
 
@@ -141,70 +134,70 @@ def gbfs(grid, start, goal):
             if neighbor not in visited:
                 came_from[neighbor] = current
                 priority = heuristic(neighbor, goal)
-                count += 1
-                heapq.heappush(open_set, (priority, count, neighbor))
+                heapq.heappush(open_set, (priority, neighbor))
 
-    return False
-
-# ================= GRID FUNCTIONS =================
-def create_grid():
-    return [[Node(r, c) for c in range(COLS)] for r in range(ROWS)]
-
-def draw_grid(grid):
-    WIN.fill(WHITE)
-    for row in grid:
-        for node in row:
-            node.draw()
-    pygame.display.update()
-
-def clear_path(grid):
-    for row in grid:
-        for node in row:
-            if not node.is_obstacle and not node.is_start and not node.is_goal:
-                node.color = WHITE
+    return None
 
 # ================= MAIN =================
 def main():
-    grid = create_grid()
+    grid = [[Node(r, c) for c in range(COLS)] for r in range(ROWS)]
     start = grid[0][0]
     goal = grid[ROWS-1][COLS-1]
     start.make_start()
     goal.make_goal()
 
+    agent_pos = start
+    current_path = []
+    algorithm = None
+
+    clock = pygame.time.Clock()
     run = True
+
     while run:
-        draw_grid(grid)
+        clock.tick(5)
+        WIN.fill(WHITE)
 
         for row in grid:
             for node in row:
                 node.update_neighbors(grid)
+                node.draw()
+
+        pygame.display.update()
+
+        # Agent Movement
+        if current_path:
+            next_node = current_path.pop(0)
+
+            # If blocked → Replan
+            if next_node.is_obstacle:
+                if algorithm == "astar":
+                    current_path = astar(grid, agent_pos, goal) or []
+                else:
+                    current_path = gbfs(grid, agent_pos, goal) or []
+                continue
+
+            agent_pos.color = WHITE if not agent_pos.is_start else GREEN
+            agent_pos = next_node
+            agent_pos.make_agent()
+
+            # Random Dynamic Obstacle
+            if random.random() < 0.2:
+                r = random.randint(0, ROWS-1)
+                c = random.randint(0, COLS-1)
+                grid[r][c].make_obstacle()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 run = False
 
-            elif event.type == pygame.MOUSEBUTTONDOWN:
-                x, y = pygame.mouse.get_pos()
-                if x < GRID_AREA and y < GRID_AREA:
-                    row = y // CELL_SIZE
-                    col = x // CELL_SIZE
-                    node = grid[row][col]
-                    if event.button == 1:
-                        node.make_obstacle()
-                    elif event.button == 3:
-                        node.remove_obstacle()
-
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_a:
-                    clear_path(grid)
-                    astar(grid, start, goal)
+                    algorithm = "astar"
+                    current_path = astar(grid, agent_pos, goal) or []
 
                 if event.key == pygame.K_g:
-                    clear_path(grid)
-                    gbfs(grid, start, goal)
-
-                if event.key == pygame.K_c:
-                    clear_path(grid)
+                    algorithm = "gbfs"
+                    current_path = gbfs(grid, agent_pos, goal) or []
 
     pygame.quit()
 
